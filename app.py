@@ -14,12 +14,12 @@ from google.protobuf.message import DecodeError
 
 app = Flask(__name__)
 
-def load_tokens(server_name):
+def load_tokens(region):
     try:
-        if server_name == "IND":
+        if region == "IND":
             with open("token_ind.json", "r") as f:
                 tokens = json.load(f)
-        elif server_name in {"BR", "US", "SAC", "NA"}:
+        elif region in {"BR", "US", "SAC", "NA"}:
             with open("token_br.json", "r") as f:
                 tokens = json.load(f)
         else:
@@ -27,7 +27,7 @@ def load_tokens(server_name):
                 tokens = json.load(f)
         return tokens
     except Exception as e:
-        app.logger.error(f"Error loading tokens for server {server_name}: {e}")
+        app.logger.error(f"Error loading tokens for server {region}: {e}")
         return None
 
 def encrypt_message(plaintext):
@@ -76,9 +76,9 @@ async def send_request(encrypted_uid, token, url):
         app.logger.error(f"Exception in send_request: {e}")
         return None
 
-async def send_multiple_requests(uid, server_name, url):
+async def send_multiple_requests(uid, region, url):
     try:
-        region = server_name
+        region = region
         protobuf_message = create_protobuf_message(uid, region)
         if protobuf_message is None:
             app.logger.error("Failed to create protobuf message.")
@@ -88,7 +88,7 @@ async def send_multiple_requests(uid, server_name, url):
             app.logger.error("Encryption failed.")
             return None
         tasks = []
-        tokens = load_tokens(server_name)
+        tokens = load_tokens(region)
         if tokens is None:
             app.logger.error("Failed to load tokens.")
             return None
@@ -118,11 +118,11 @@ def enc(uid):
     encrypted_uid = encrypt_message(protobuf_data)
     return encrypted_uid
 
-def make_request(encrypt, server_name, token):
+def make_request(encrypt, region, token):
     try:
-        if server_name == "IND":
+        if region == "IND":
             url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
-        elif server_name in {"BR", "US", "SAC", "NA"}:
+        elif region in {"BR", "US", "SAC", "NA"}:
             url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
         else:
             url = "https://clientbp.ggblueshark.com/GetPlayerPersonalShow"
@@ -161,9 +161,9 @@ def decode_protobuf(binary):
         app.logger.error(f"Unexpected error during protobuf decoding: {e}")
         return None
 
-def fetch_player_info(uid):
+def fetch_player_info(region, uid):
     try:
-        url = f"https://nr-codex-info.vercel.app/get?uid={uid}"
+        url = f"https://bug-free-octo.vercel.app/info?region={region}&uid={uid}"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
@@ -183,9 +183,9 @@ def fetch_player_info(uid):
 @app.route('/like', methods=['GET'])
 def handle_requests():
     uid = request.args.get("uid")
-    server_name = request.args.get("server_name", "").upper()
-    if not uid or not server_name:
-        return jsonify({"error": "UID and server_name are required"}), 400
+    region = request.args.get("region", "").upper()
+    if not uid or not region:
+        return jsonify({"error": "UID and region are required"}), 400
 
     try:
         def process_request():
@@ -195,14 +195,14 @@ def handle_requests():
             level = player_info["Level"]
             release_version = player_info["ReleaseVersion"]
 
-            # Validate server_name against region from API
-            if region != "NA" and server_name != region:
-                app.logger.warning(f"Server name {server_name} does not match API region {region}. Using API region.")
-                server_name_used = region
+            # Validate region against region from API
+            if region != "NA" and region != region:
+                app.logger.warning(f"Server name {region} does not match API region {region}. Using API region.")
+                region_used = region
             else:
-                server_name_used = server_name
+                region_used = region
 
-            tokens = load_tokens(server_name_used)
+            tokens = load_tokens(region_used)
             if tokens is None:
                 raise Exception("Failed to load tokens.")
             token = tokens[0]['token']
@@ -210,7 +210,7 @@ def handle_requests():
             if encrypted_uid is None:
                 raise Exception("Encryption of UID failed.")
 
-            before = make_request(encrypted_uid, server_name_used, token)
+            before = make_request(encrypted_uid, region_used, token)
             if before is None:
                 raise Exception("Failed to retrieve initial player info.")
             try:
@@ -225,16 +225,16 @@ def handle_requests():
                 before_like = 0
             app.logger.info(f"Likes before command: {before_like}")
 
-            if server_name_used == "IND":
+            if region_used == "IND":
                 url = "https://client.ind.freefiremobile.com/LikeProfile"
-            elif server_name_used in {"BR", "US", "SAC", "NA"}:
+            elif region_used in {"BR", "US", "SAC", "NA"}:
                 url = "https://client.us.freefiremobile.com/LikeProfile"
             else:
                 url = "https://clientbp.ggblueshark.com/LikeProfile"
 
-            asyncio.run(send_multiple_requests(uid, server_name_used, url))
+            asyncio.run(send_multiple_requests(uid, region_used, url))
 
-            after = make_request(encrypted_uid, server_name_used, token)
+            after = make_request(encrypted_uid, region_used, token)
             if after is None:
                 raise Exception("Failed to retrieve player info after like requests.")
             try:
